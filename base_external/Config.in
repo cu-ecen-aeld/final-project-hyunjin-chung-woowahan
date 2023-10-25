@@ -1,1 +1,1 @@
-source "$BR2_EXTERNAL_system_monitoring_PATH/package/system_monitor/Config.in"
+source "$BR2_EXTERNAL_system_monitor_PATH/package/system_monitor/Config.in"
