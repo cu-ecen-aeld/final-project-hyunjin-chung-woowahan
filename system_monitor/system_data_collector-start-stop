@@ -1,0 +1,19 @@
+#!/bin/sh
+
+#DIR_PATH=$(dirname $(readlink -f "${BASH_SOURCE:-$0}"))
+
+case "$1" in
+  start)
+    echo "Starting daemon: system data collector"
+		start-stop-daemon --start --exec /usr/bin/system_data_collector
+    echo "Started daemon: system data collector"
+    ;;
+  stop)
+    echo "Stopping daemon: system data collector"
+    start-stop-daemon --stop --exec /usr/bin/system_data_collector
+    echo "Stopped daemon: system data collector"
+    ;;
+  *)
+    echo "Usage: "$0" {start|stop}"
+    exit 1
+esac

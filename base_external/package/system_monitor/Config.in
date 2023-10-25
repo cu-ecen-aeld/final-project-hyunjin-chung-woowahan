@@ -1,0 +1,4 @@
+config BR2_PACKAGE_SYSTEM_MONITOR
+	bool "system-monitor"
+	help
+    collect system monitoring data and send to server
