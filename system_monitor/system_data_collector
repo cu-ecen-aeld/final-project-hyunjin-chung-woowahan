@@ -13,6 +13,6 @@ system_data_file_network="${system_data_folder}/network"
 
 top -b -d 1 | tee ${system_data_file_cpu_mem} | nc ${target} ${port} -w 1 &
 iotop -b -o -d 1 | tee ${system_data_file_disk} | nc ${target} ${port} -w 1 &
-iftop -t -B | tee ${system_data_file_network} | nc ${target} ${port} -w 1
+iftop -t -B | tee ${system_data_file_network} | nc ${target} ${port} -w 1 &
 # sensors command can be executed correctly in QEMU environment
 #sensors >> ${system_data_file_temperature
