@@ -1,8 +1,8 @@
 CFLAGS ?= -g -Wall -Werror
-TARGET ?= system_data_sender
+TARGET ?= system_monitor_server
 LDFLAGS ?= -lpthread
 CC ?= $(CROSS_COMPILE)gcc
-SRCS = system_data_sender.c
+SRCS = system_monitor_server.c
 OBJS = $(SRCS:.c=.o)
 
 %.o: %.c

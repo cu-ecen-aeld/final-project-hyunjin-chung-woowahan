@@ -1,10 +1,24 @@
 #include <stdio.h>
+#include <syslog.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <string.h>
+#include <netdb.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <signal.h>
+#include <stdbool.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <pthread.h>
+#include <sys/queue.h>
+#include <fcntl.h>
+#include <time.h>
+#include <unistd.h>
 
-#if (USE_AESD_CHAR_DEVICE == 1)
-  #define FILE_PATH "/dev/aesdchar"
-#else
-  #define FILE_PATH "/var/tmp/aesdsocketdata"
-#endif
+#define BUF_SIZE (1024 * 1024)
+
+#define FILE_PATH "/var/tmp/system_data"
 
 typedef struct thread_info
 {
@@ -32,36 +46,6 @@ static void signal_handler(int signal_number)
 	}
 }
 
-static bool send_data(FILE* file, int sockfd, char* buf)
-{
-  if (!file)
-  {
-	  if ((file = fopen(FILE_PATH, "r")) == NULL)
-	  {
-		  printf("file open fail\n");
-		  return false;
-	  }
-  }
-
-	while(fgets(buf, BUF_SIZE, file) != NULL)
-	{
-		//printf("send string: %s\n", buf);
-		if (send(sockfd, buf, strlen(buf), 0) == -1)
-		{
-			printf("send is failed\n");
-			return false;
-		}
-	}
-
-	if (fclose(file) != 0)
-	{
-		printf("fail to close file");
-		return false;
-	}
-
-	return true;
-}
-
 static bool write_file(char* buf, int data_size)
 {
   FILE* file;
@@ -77,7 +61,7 @@ static bool write_file(char* buf, int data_size)
 		if (buf[i] == '\n')
 		{
 			buf[i] = '\0';
-		  //printf("write string: %s\n", buf);
+		  printf("write string: %s\n", buf);
 
 			if (fprintf(file, "%s\n", buf) < 0)
 			{
@@ -123,7 +107,7 @@ static int init_socket(int *sockfd, char* ipaddr)
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
 
-	//printf("start aesdsocket\n");
+	printf("start aesdsocket\n");
 
 	if ((*sockfd = socket(hints.ai_family, hints.ai_socktype, 0)) == -1)
 	{
@@ -131,7 +115,7 @@ static int init_socket(int *sockfd, char* ipaddr)
 		return -1;
 	}
 
-	//printf("create socket\n");
+	printf("create socket\n");
 
 
 	int option = 1;
@@ -141,7 +125,7 @@ static int init_socket(int *sockfd, char* ipaddr)
 		return -1;
 	}
 
-	//printf("set socket\n");
+	printf("set socket\n");
 
 	struct addrinfo *servinfo;
 	int getaddrinfo_err;
@@ -161,7 +145,7 @@ static int init_socket(int *sockfd, char* ipaddr)
 	}
 
 	syslog(LOG_INFO, "Accepted connection from %s\n", p_ip_addr);
-	//printf("ip: %s\n", p_ip_addr);
+	printf("ip: %s\n", p_ip_addr);
 
 	if (bind(*sockfd, servinfo->ai_addr, servinfo->ai_addrlen) == -1)
 	{
@@ -170,7 +154,7 @@ static int init_socket(int *sockfd, char* ipaddr)
 		return -1;
 	}
 
-	//printf("bind socket\n");
+	printf("bind socket\n");
 
 	freeaddrinfo(servinfo);
 
@@ -180,7 +164,7 @@ static int init_socket(int *sockfd, char* ipaddr)
 		return -1;
 	}
 
-	//printf("listen\n");
+	printf("listen\n");
 
 	int flags;
 	if ((flags = fcntl(*sockfd, F_GETFL)) == -1)
@@ -195,12 +179,11 @@ static int init_socket(int *sockfd, char* ipaddr)
 		return -1;
 	}
 
-	//printf("complete initialization\n");
+	printf("complete initialization\n");
 
 	return 0;
 }
 
-#if (USE_AESD_CHAR_DEVICE == 0)
 static void write_timestamp(void)
 {
 	#define STRFTIME_MAX_SIZE (100)
@@ -239,12 +222,11 @@ static void write_timestamp(void)
 		pthread_mutex_unlock(&mutex);
 	}
 }
-#endif
 
 static void* receive_send_data(void* arg)
 {
 	thread_info_t* p_thread_info = (thread_info_t*)arg;
-  char *aesdchar_ioctl_cmd = "AESDCHAR_IOCSEEKTO:";
+//char *aesdchar_ioctl_cmd = "AESDCHAR_IOCSEEKTO:";
 
 	while(true)
 	{
@@ -258,52 +240,19 @@ static void* receive_send_data(void* arg)
 		}
 		else if (num_bytes_received == 0)
 		{
-			//printf("finished\n");
+			printf("finished\n");
 			break;
 		}
 
     pthread_mutex_lock(&mutex);
-    FILE* file = NULL;
 
-    if ((num_bytes_received >= strlen(aesdchar_ioctl_cmd)) && (0 == strncmp(p_thread_info->buf, aesdchar_ioctl_cmd,
-            strlen(aesdchar_ioctl_cmd))))
+    if (write_file(p_thread_info->buf, num_bytes_received) == false)
     {
-      struct aesd_seekto seekto;
-      char *tmp = strchr(p_thread_info->buf, ':');
-      sscanf(tmp,":%u,%u", &(seekto.write_cmd), &(seekto.write_cmd_offset));
-
-      printf("ioctl write cmd: %u, offset: %u\n", seekto.write_cmd,
-          seekto.write_cmd_offset);
-
-      if ((file = fopen(FILE_PATH, "r")) == NULL)
-      {
-          pthread_mutex_unlock(&mutex);
-          printf("fail to open write file\n");
-          p_thread_info->is_success = false;
-          break;
-      }
-
-      ioctl(fileno(file), AESDCHAR_IOCSEEKTO, &seekto);
-    }
-    else
-    {
-
-      if (write_file(p_thread_info->buf, num_bytes_received) == false)
-      {
         pthread_mutex_unlock(&mutex);
         fprintf(stderr, "fail to write file");
         printf("fail to write file\n");
         p_thread_info->is_success = false;
         break;
-      }
-    }
-
-    if (send_data(file, p_thread_info->sockfd, p_thread_info->buf) == false)
-    {
-      pthread_mutex_unlock(&mutex);
-      fprintf(stderr, "fail to send data");
-      p_thread_info->is_success = false;
-      break;
     }
 
     pthread_mutex_unlock(&mutex);
@@ -320,9 +269,6 @@ int main(int argc, char * argv[])
 	int pid = 0;
 	int sockfd;
 	char ipaddr[INET_ADDRSTRLEN];
-
-  printf("Hello World\n");
-  return 0;
 
 	if ((argc == 2) && (!strcmp(argv[1], "-d")))
 		daemon_mode = true;
@@ -371,7 +317,7 @@ int main(int argc, char * argv[])
 
 				pthread_create(&p_slist_thread->thread, NULL, &receive_send_data, (void*)p_thread_info);
 
-				//printf("create thread\n");
+				printf("create thread\n");
 
 				SLIST_INSERT_HEAD(&head, p_slist_thread, entries);
 			}
@@ -386,7 +332,7 @@ int main(int argc, char * argv[])
 					{
 						result = -1;
 						disconnect = true;
-						//printf("fail thread\n");
+						printf("fail thread\n");
 						break;
 					}
 
@@ -396,13 +342,11 @@ int main(int argc, char * argv[])
 					free(p_slist_thread->thread_info.buf);
 					free(p_slist_thread);
 
-					//printf("destroy thread\n");
+					printf("destroy thread\n");
 				}
 			}
 
-#if (USE_AESD_CHAR_DEVICE == 0)
 			write_timestamp();
-#endif
 
 			if (disconnect)
 			{
@@ -418,7 +362,7 @@ int main(int argc, char * argv[])
 					free(p_slist_thread->thread_info.buf);
 					free(p_slist_thread);
 
-					//printf("destroy thread\n");
+					printf("destroy thread\n");
 				}
 
 				break;
